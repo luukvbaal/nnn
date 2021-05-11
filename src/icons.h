@@ -25,24 +25,24 @@ struct icon_pair {
 #define ICON_PADDING_LEFT  ""
 #define ICON_PADDING_RIGHT " "
 
-#define COLOR_VIDEO        93  /* Purple */
-#define COLOR_AUDIO        220 /* Gold1 */
-#define COLOR_IMAGE        82  /* Chartreuse2 */
-#define COLOR_DOCS         202 /* OrangeRed1 */
-#define COLOR_ARCHIVE      209 /* Salmon1 */
-#define COLOR_C            81  /* SteelBlue1 */
-#define COLOR_JAVA         32  /* DeepSkyBlue3 */
-#define COLOR_JAVASCRIPT   47  /* SpringGreen2 */
-#define COLOR_REACT        39  /* DeepSkyBlue1 */
-#define COLOR_CSS          199 /* DeepPink1 */
-#define COLOR_PYTHON       227 /* LightGoldenrod1 */
-#define COLOR_LUA          19  /* Blue3 */
-#define COLOR_DOCUMENT     15  /* White */
-#define COLOR_FSHARP       31  /* DeepSkyBlue3 */
-#define COLOR_RUBY         160 /* Red3 */
-#define COLOR_SCALA        196 /* Red1 */
-#define COLOR_SHELL        47  /* SpringGreen2 */
-#define COLOR_VIM          28  /* Green4 */
+#define COLOR_VIDEO      110
+#define COLOR_AUDIO      150
+#define COLOR_IMAGE      150
+#define COLOR_DOCS       173
+#define COLOR_ARCHIVE    179
+#define COLOR_C          150
+#define COLOR_JAVA       139
+#define COLOR_JAVASCRIPT 109
+#define COLOR_REACT      111
+#define COLOR_CSS        110
+#define COLOR_PYTHON     68
+#define COLOR_LUA        167
+#define COLOR_DOCUMENT   111
+#define COLOR_FSHARP     179
+#define COLOR_RUBY       150
+#define COLOR_SCALA      139
+#define COLOR_SHELL      109
+#define COLOR_VIM        109
 
 /*
  * Using symbols defined in icons-in-terminal.h, or even using icons-in-terminal is not necessary.
@@ -83,6 +83,7 @@ static const struct icon_pair icons_name[] = {
 	{"Documents",    ICON_BRIEFCASE, 0},
 	{"Downloads",    ICON_DOWNLOADS, 0},
 	{"Music",        ICON_MUSIC,     0},
+	{"Onedrive",     ICON_ONEDRIVE,  0},
 	{"Pictures",     ICON_PICTURES,  0},
 	{"Public",       ICON_PUBLIC,    0},
 	{"Templates",    ICON_TEMPLATES, 0},

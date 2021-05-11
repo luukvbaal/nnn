@@ -22,6 +22,7 @@
 #define ICON_DOCUMENT      "\uf718"
 #define ICON_DOWNLOADS     "\uf5d7"
 #define ICON_MUSIC         "\uf832"
+#define ICON_ONEDRIVE      "\uf8c9"
 #define ICON_MUSICFILE     "\uf886"
 #define ICON_PICTURES      "\uf753"
 #define ICON_PICTUREFILE   "\uf71e"
