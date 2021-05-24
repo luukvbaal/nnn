@@ -3800,7 +3800,7 @@ static void printent(const struct entry *ent, uint_t namecols, bool sel)
 
 	uchar_t color_pair = get_color_pair_name_ind(ent, &ind, &attrs);
 
-	addch((ent->flags & FILE_SELECTED) ? '+' | A_REVERSE | A_BOLD : ' ');
+	addch((ent->flags & FILE_SELECTED) ? '+' | A_BOLD : ' ');
 
 	if (g_state.oldcolor)
 		resetdircolor(ent->flags);
