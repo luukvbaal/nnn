@@ -5097,6 +5097,7 @@ static int dentfill(char *path, struct entry **ppdents)
 					if (g_state.interrupt)
 						goto exit;
 					ndents = n;
+					ENTSORT(pdents, ndents, entrycmpfn);
 					redraw(path);
 				}
 			} else {
@@ -5231,6 +5232,7 @@ static int dentfill(char *path, struct entry **ppdents)
 				if (g_state.interrupt)
 					goto exit;
 				ndents = n;
+				ENTSORT(pdents, ndents, entrycmpfn);
 				redraw(path);
 			} else {
 				dentp->blocks = (cfg.apparentsz ? sb.st_size : sb.st_blocks);
