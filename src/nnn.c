@@ -5067,6 +5067,7 @@ static void dirwalk(char *dir, char *path, int entnum, bool mountpoint)
 
 	pthread_create(&tid, NULL, du_thread, (void *)&(core_data[core]));
 
+	ENTSORT(pdents, ndents, entrycmpfn);
 	redraw(dir);
 	tolastln();
 	addstr(" [^C aborts]\n");
