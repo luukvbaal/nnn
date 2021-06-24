@@ -269,6 +269,7 @@ typedef struct entry {
 	uid_t uid; /* 4 bytes */
 	gid_t gid; /* 4 bytes */
 #endif
+	char git_status[2];
 } *pEntry;
 
 /* Key-value pairs from env */
@@ -319,6 +320,7 @@ typedef struct {
 	uint_t cliopener  : 1;  /* All-CLI app opener */
 	uint_t waitedit   : 1;  /* For ops that can't be detached, used EDITOR */
 	uint_t rollover   : 1;  /* Roll over at edges */
+	uint_t normalgit  : 1;  /* Show git status in normal mode */
 } settings;
 
 /* Non-persistent program-internal states (alphabeical order) */
@@ -368,7 +370,19 @@ typedef struct {
 } session_header_t;
 #endif
 
+typedef struct {
+	char path[PATH_MAX];
+	char status[2];
+} simple_git_status_t;
+
+typedef struct {
+	simple_git_status_t *statuses;
+	size_t len;
+	bool show;
+} simple_git_statuses_t;
+
 /* GLOBALS */
+simple_git_statuses_t git_statuses;
 
 /* Configuration, contexts */
 static settings cfg = {
@@ -399,6 +413,7 @@ static settings cfg = {
 	0, /* cliopener */
 	0, /* waitedit */
 	1, /* rollover */
+	0, /* normalgit */
 };
 
 static context g_ctx[CTX_MAX] __attribute__ ((aligned));
@@ -3506,6 +3521,37 @@ static char *get_kv_val(kv *kvarr, char *buf, int key, uchar_t max, uchar_t id)
 	return NULL;
 }
 
+static int get_git_statuses(void) {
+	FILE *fp = popen("git rev-parse --show-toplevel 2>/dev/null", "r");
+	static char workdir[PATH_MAX];
+
+	fgets(workdir, PATH_MAX, fp);
+	pclose(fp);
+
+	if (!workdir[0])
+		return 0;
+
+	int i = -1, pathindex;
+	char entry[PATH_MAX], *pathptr = entry;
+
+	git_statuses.show = FALSE;
+	workdir[xstrlen(workdir) - 1] = '\0';
+	fp = popen("git -c core.quotePath=false status --porcelain --ignored=matching -uall 2>/dev/null", "r");
+
+	while (fgets(entry, PATH_MAX, fp) != NULL) {
+		git_statuses.statuses = xrealloc(git_statuses.statuses, sizeof(simple_git_status_t) * (++i + 1));
+		git_statuses.statuses[i].status[0] = entry[0];
+		git_statuses.statuses[i].status[1] = entry[1];
+		pathindex = (entry[3] == '"') ? 4 : 3;
+		entry[xstrlen(entry) - pathindex + 2] = '\0';
+		pathptr = entry + pathindex;
+		mkpath(workdir, pathptr, git_statuses.statuses[i].path);
+	}
+
+	pclose(fp);
+	return ++i;
+}
+
 static void resetdircolor(int flags)
 {
 	/* Directories are always shown on top, clear the color when moving to first file */
@@ -3842,6 +3888,12 @@ static void printent(const struct entry *ent, uint_t namecols, bool sel)
 	attrs = 0;
 
 	uchar_t color_pair = get_color_pair_name_ind(ent, &ind, &attrs);
+
+	if (git_statuses.show && (cfg.showdetail || cfg.normalgit)) {
+		if (cfg.normalgit && !cfg.showdetail)
+			addch(' ');
+		addstr(ent->git_status);
+	}
 
 	addch((ent->flags & FILE_SELECTED) ? '+' | A_REVERSE | A_BOLD : ' ');
 
@@ -5171,6 +5223,10 @@ static int dentfill(char *path, struct entry **ppdents)
 		attron(COLOR_PAIR(cfg.curctx + 1));
 	}
 
+	char linkpath[PATH_MAX];
+	if ((git_statuses.len = get_git_statuses()))
+		realpath(path, linkpath);
+
 #if _POSIX_C_SOURCE >= 200112L
 	posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
 #endif
@@ -5367,6 +5423,31 @@ static int dentfill(char *path, struct entry **ppdents)
 			   || dp->d_type == DT_UNKNOWN) && S_ISDIR(sb.st_mode))) {
 			dentp->flags |= DIR_OR_DIRLNK;
 #endif
+		}
+
+		if (git_statuses.len) {
+			char dentpath[PATH_MAX];
+			size_t pathlen = mkpath(linkpath, dentp->name, dentpath) - 1;
+			dentp->git_status[0] = dentp->git_status[1] = '-';
+
+			if (dentp->flags & DIR_OR_DIRLNK) {
+				for (size_t i = 0; i < git_statuses.len; ++i)
+					if (is_prefix(git_statuses.statuses[i].path, dentpath, pathlen)) {
+						dentp->git_status[0] = git_statuses.statuses[i].status[0];
+						if ((dentp->git_status[1] = git_statuses.statuses[i].status[1]) != '!')
+							git_statuses.show = TRUE;
+						if (dentp->git_status[0] == '?')
+							break;
+					}
+			} else {
+				for (size_t i = 0; i < git_statuses.len; ++i)
+					if (!xstrcmp(git_statuses.statuses[i].path, dentpath)) {
+						dentp->git_status[0] = git_statuses.statuses[i].status[0];
+						if ((dentp->git_status[1] = git_statuses.statuses[i].status[1]) != '!')
+							git_statuses.show = TRUE;
+						break;
+					}
+			}
 		}
 
 		++ndents;
@@ -5885,16 +5966,16 @@ static int adjust_cols(int n)
 #endif
 	if (cfg.showdetail) {
 		/* Fallback to light mode if less than 35 columns */
-		if (n < 36)
+		if (n < 38)
 			cfg.showdetail ^= 1;
 		else {
 			/* 2 more accounted for below */
-			n -= 32;
+			n -= 34;
 		}
 	}
 
 	/* 2 columns for preceding space and indicator */
-	return (n - 2);
+	return (n - ((git_statuses.show && (cfg.normalgit && !cfg.showdetail)) ? 5 : 2));
 }
 
 static void draw_line(char *path, int ncols)
@@ -7638,6 +7719,7 @@ static void usage(void)
 		" -F val  fifo mode [0:preview 1:explore]\n"
 #endif
 		" -g      regex filters\n"
+		" -G      always show git status\n"
 		" -H      show hidden files\n"
 		" -J      no auto-proceed on select\n"
 		" -K      detect key collision\n"
@@ -7776,6 +7858,7 @@ static void cleanup(void)
 		fflush(stdout);
 	}
 #endif
+	free(git_statuses.statuses);
 	free(selpath);
 	free(plgpath);
 	free(cfgpath);
@@ -7819,7 +7902,7 @@ int main(int argc, char *argv[])
 
 	while ((opt = (env_opts_id > 0
 		       ? env_opts[--env_opts_id]
-		       : getopt(argc, argv, "aAb:cCdDeEfF:gHJKl:nop:P:QrRs:St:T:uUVwxh"))) != -1) {
+		       : getopt(argc, argv, "aAb:cCdDeEfF:gGHJKl:nop:P:QrRs:St:T:uUVwxh"))) != -1) {
 		switch (opt) {
 #ifndef NOFIFO
 		case 'a':
@@ -7869,6 +7952,9 @@ int main(int argc, char *argv[])
 		case 'g':
 			cfg.regex = 1;
 			filterfn = &visible_re;
+			break;
+		case 'G':
+			cfg.normalgit = 1;
 			break;
 		case 'H':
 			cfg.showhidden = 1;
