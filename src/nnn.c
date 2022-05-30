@@ -389,12 +389,13 @@ typedef struct {
 	uint_t runctx     : 3;  /* The context in which plugin is to be run */
 	uint_t runplugin  : 1;  /* Choose plugin mode */
 	uint_t selbm      : 1;  /* Select a bookmark from bookmarks directory */
+	uint_t filtermode : 2;  /* Store type-to-nav when entering plugin/bookmarks directory */
 	uint_t selmode    : 1;  /* Set when selecting files */
 	uint_t stayonsel  : 1;  /* Disable auto-jump on select */
 	uint_t trash      : 2;  /* Trash method 0: rm -rf, 1: trash-cli, 2: gio trash */
 	uint_t uidgid     : 1;  /* Show owner and group info */
 	uint_t previewer  : 1;  /* Run state of previewer */
-	uint_t reserved   : 5;  /* Adjust when adding/removing a field */
+	uint_t reserved   : 3;  /* Adjust when adding/removing a field */
 } runstate;
 
 /* Contexts or workspaces */
@@ -3492,8 +3493,8 @@ static int filterentries(char *path, char *lastname)
 		}
 
 		/* If the only match is a dir, auto-enter and cd into it */
-		if (ndents == 1 && cfg.filtermode
-		    && cfg.autoenter && (pdents[0].flags & DIR_OR_DIRLNK)) {
+		if (ndents == 1 && cfg.autoenter && (((pdents[0].flags & DIR_OR_DIRLNK) &&
+				cfg.filtermode) || (g_state.selbm || g_state.runplugin))) {
 			*ch = KEY_ENTER;
 			cur = 0;
 			goto end;
@@ -5085,14 +5086,14 @@ static size_t handle_bookmark(const char *bmark, char *newpath)
 		bmark ? xstrsncpy(newpath, bmark, PATH_MAX) : (r = MSG_NOT_SET);
 	else if (fd == '\r') { /* Visit bookmarks directory */
 		mkpath(cfgpath, toks[TOK_BM], newpath);
-		g_state.selbm = 1;
+		g_state.filtermode = cfg.filtermode + 1;
+		g_state.selbm = cfg.filtermode = 1;
 	} else if (!get_kv_val(bookmark, newpath, fd, maxbm, NNN_BMS))
 		r = MSG_INVALID_KEY;
 
 	if (!r && chdir(newpath) == -1) {
 		r = MSG_ACCESS;
-		if (g_state.selbm)
-			g_state.selbm = 0;
+		g_state.selbm = 0;
 	}
 
 	return r;
@@ -6836,6 +6837,12 @@ begin:
 		setdirwatch();
 	}
 
+	if (g_state.filtermode) {
+		cfg.filtermode = g_state.filtermode - 1;
+		if (!g_state.selbm)
+			g_state.filtermode = 0;
+	}
+
 #ifndef NOX11
 	xterm_cfg(path);
 #endif
@@ -7945,6 +7952,8 @@ run_plugin:
 					g_state.runplugin = 1;
 				}
 
+				g_state.filtermode = cfg.filtermode + 1;
+				cfg.filtermode = 1;
 				xstrsncpy(lastdir, path, PATH_MAX);
 				xstrsncpy(path, plgpath, PATH_MAX);
 				if (ndents)
