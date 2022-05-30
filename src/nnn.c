@@ -265,6 +265,25 @@
 #define FREE     0
 #define CAPACITY 1
 
+/* Git icons */
+#ifdef NERD
+#define GIT_ADD ""
+#define GIT_DEL ""
+#define GIT_IGN ""
+#define GIT_MOD ""
+#define GIT_NEW ""
+#define GIT_NON "-"
+#define GIT_UPD "ﮮ"
+#else
+#define GIT_ADD "A"
+#define GIT_DEL "D"
+#define GIT_IGN "!"
+#define GIT_MOD "M"
+#define GIT_NEW "?"
+#define GIT_NON "-"
+#define GIT_UPD "U"
+#endif
+
 /* TYPE DEFINITIONS */
 typedef unsigned int uint_t;
 typedef unsigned char uchar_t;
@@ -289,6 +308,7 @@ typedef struct entry {
 	uid_t uid; /* 4 bytes */
 	gid_t gid; /* 4 bytes */
 #endif
+	char git_status[2][5];
 } *pEntry;
 
 /* Selection marker */
@@ -345,6 +365,7 @@ typedef struct {
 	uint_t cliopener  : 1;  /* All-CLI app opener */
 	uint_t waitedit   : 1;  /* For ops that can't be detached, used EDITOR */
 	uint_t rollover   : 1;  /* Roll over at edges */
+	uint_t normalgit  : 1;  /* Show git status in normal mode */
 } settings;
 
 /* Non-persistent program-internal states (alphabeical order) */
@@ -372,7 +393,8 @@ typedef struct {
 	uint_t stayonsel  : 1;  /* Disable auto-jump on select */
 	uint_t trash      : 2;  /* Trash method 0: rm -rf, 1: trash-cli, 2: gio trash */
 	uint_t uidgid     : 1;  /* Show owner and group info */
-	uint_t reserved   : 6;  /* Adjust when adding/removing a field */
+	uint_t previewer  : 1;  /* Run state of previewer */
+	uint_t reserved   : 5;  /* Adjust when adding/removing a field */
 } runstate;
 
 /* Contexts or workspaces */
@@ -395,7 +417,21 @@ typedef struct {
 } session_header_t;
 #endif
 
+static struct {
+	ushort_t maxnameln, maxsizeln, maxuidln, maxgidln, maxentln, uidln, gidln, printguid;
+} dtls;
+
+typedef struct {
+	char status[2];
+	char path[PATH_MAX];
+} git_status_t;
+
 /* GLOBALS */
+struct {
+	bool show;
+	size_t len;
+	git_status_t *statuses;
+} git_statuses;
 
 /* Configuration, contexts */
 static settings cfg = {
@@ -426,6 +462,7 @@ static settings cfg = {
 	0, /* cliopener */
 	0, /* waitedit */
 	1, /* rollover */
+	0, /* normalgit */
 };
 
 static context g_ctx[CTX_MAX] __attribute__ ((aligned));
@@ -520,6 +557,9 @@ static char g_tmpfpath[TMP_LEN_MAX] __attribute__ ((aligned));
 
 /* Buffer to store plugins control pipe location */
 static char g_pipepath[TMP_LEN_MAX] __attribute__ ((aligned));
+
+/* Buffer to store preview plugins control pipe location */
+static char g_ppipepath[TMP_LEN_MAX] __attribute__ ((aligned));
 
 /* Non-persistent runtime states */
 static runstate g_state;
@@ -697,12 +737,13 @@ static const char * const messages[] = {
 #define NNN_FCOLORS 5
 #define NNNLVL      6
 #define NNN_PIPE    7
-#define NNN_MCLICK  8
-#define NNN_SEL     9
-#define NNN_ARCHIVE 10
-#define NNN_ORDER   11
-#define NNN_HELP    12 /* strings end here */
-#define NNN_TRASH   13 /* flags begin here */
+#define NNN_PPIPE   8
+#define NNN_MCLICK  9
+#define NNN_SEL     10
+#define NNN_ARCHIVE 11
+#define NNN_ORDER   12
+#define NNN_HELP    13 /* strings end here */
+#define NNN_TRASH   14 /* flags begin here */
 
 static const char * const env_cfg[] = {
 	"NNN_OPTS",
@@ -713,6 +754,7 @@ static const char * const env_cfg[] = {
 	"NNN_FCOLORS",
 	"NNNLVL",
 	"NNN_PIPE",
+	"NNN_PPIPE",
 	"NNN_MCLICK",
 	"NNN_SEL",
 	"NNN_ARCHIVE",
@@ -859,7 +901,7 @@ static int set_sort_flags(int r);
 static void statusbar(char *path);
 static bool get_output(char *file, char *arg1, char *arg2, int fdout, bool multi, bool page);
 #ifndef NOFIFO
-static void notify_fifo(bool force);
+static void notify_fifo(bool force, bool closepreview);
 #endif
 
 /* Functions */
@@ -1094,10 +1136,12 @@ static char *getpwname(uid_t uid)
 	static char *namecache;
 
 	if (uidcache != uid) {
+		if (dtls.maxuidln && !dtls.printguid) dtls.printguid = 1;
 		struct passwd *pw = getpwuid(uid);
 
 		uidcache = uid;
 		namecache = pw ? pw->pw_name : NULL;
+		dtls.uidln = xstrlen(namecache ? namecache : xitoa(uid));
 	}
 
 	return namecache ? namecache : xitoa(uid);
@@ -1109,10 +1153,12 @@ static char *getgrname(gid_t gid)
 	static char *grpcache;
 
 	if (gidcache != gid) {
+		if (dtls.maxgidln && !dtls.printguid) dtls.printguid = 1;
 		struct group *gr = getgrgid(gid);
 
 		gidcache = gid;
 		grpcache = gr ? gr->gr_name : NULL;
+		dtls.gidln = xstrlen(grpcache ? grpcache : xitoa(gid));
 	}
 
 	return grpcache ? grpcache : xitoa(gid);
@@ -3071,7 +3117,7 @@ try_quit:
 			} else {
 #ifndef NOFIFO
 				if (!g_state.fifomode)
-					notify_fifo(TRUE); /* Send hovered path to NNN_FIFO */
+					notify_fifo(TRUE, FALSE); /* Send hovered path to NNN_FIFO */
 #endif
 				escaped = TRUE;
 				settimeout();
@@ -3846,6 +3892,56 @@ static int get_kv_key(kv *kvarr, char *val, uchar_t max, uchar_t id)
 	return -1;
 }
 
+static size_t get_git_statuses(const char *path)
+{
+	static char gitrev[] = "git rev-parse --show-toplevel 2>/dev/null";
+	char workdir[PATH_MAX], *ret;
+	FILE *fp = popen(gitrev, "r");
+
+	git_statuses.show = FALSE;
+	ret = fgets(workdir, PATH_MAX, fp);
+	pclose(fp);
+	if (!ret)
+		return 0;
+
+	static char gitstat[] = "git -c core.quotePath= status --porcelain --no-renames --ignored=matching -u ";
+	char pathspec[PATH_MAX], status[PATH_MAX];
+	size_t i = -1;
+	workdir[xstrlen(workdir) - 1] = '\0';
+	snprintf(pathspec, PATH_MAX, "%s\"%s\"%s 2>/dev/null", gitstat, path, cfg.showhidden ? "" : "/*");
+	fp = popen(pathspec, "r");
+
+	while (fgets(status, PATH_MAX, fp)) {
+		size_t pathindex = (status[3] == '"') ? 4 : 3;
+		status[xstrlen(status) - pathindex + 2] = '\0';
+		git_statuses.statuses = xrealloc(git_statuses.statuses, sizeof(git_status_t) * (++i + 1));
+		git_statuses.statuses[i].status[0] = status[0];
+		git_statuses.statuses[i].status[1] = status[1];
+		mkpath(workdir, status + pathindex, git_statuses.statuses[i].path);
+	}
+
+	pclose(fp);
+	return (i + 1);
+}
+
+static void set_git_status(char status[][5], uint_t nr)
+{
+	for (int j = 0; j < 2; j++) {
+		if (status[j][0] == '-')
+			switch (git_statuses.statuses[nr].status[j]) {
+				case ' ': xstrsncpy(status[j], GIT_NON, 4); break;
+				case 'M': xstrsncpy(status[j], GIT_MOD, 4); break;
+				case 'A': xstrsncpy(status[j], GIT_ADD, 4); break;
+				case '?': xstrsncpy(status[j], GIT_NEW, 4); break;
+				case '!': xstrsncpy(status[j], GIT_IGN, 4); break;
+				case 'D': xstrsncpy(status[j], GIT_DEL, 4); break;
+				case 'U': xstrsncpy(status[j], GIT_UPD, 4); break;
+			}
+	}
+	if (git_statuses.statuses[nr].status[1] != '!')
+		git_statuses.show = TRUE;
+}
+
 static void resetdircolor(int flags)
 {
 	/* Directories are always shown on top, clear the color when moving to first file */
@@ -3861,14 +3957,13 @@ static void resetdircolor(int flags)
  * Max supported str length: NAME_MAX;
  */
 #ifdef NOLC
-static char *unescape(const char *str, uint_t maxcols)
+static size_t unescape(const char *str, uint_t maxcols)
 {
 	char * const wbuf = g_buf;
 	char *buf = wbuf;
-
-	xstrsncpy(wbuf, str, maxcols);
+	size_t len = xstrsncpy(wbuf, str, maxcols);
 #else
-static wchar_t *unescape(const char *str, uint_t maxcols)
+static size_t unescape(const char *str, uint_t maxcols)
 {
 	wchar_t * const wbuf = (wchar_t *)g_buf;
 	wchar_t *buf = wbuf;
@@ -3893,7 +3988,7 @@ static wchar_t *unescape(const char *str, uint_t maxcols)
 		++buf;
 	}
 
-	return wbuf;
+	return len;
 }
 
 static off_t get_size(off_t size, off_t *pval, int comp)
@@ -4161,34 +4256,11 @@ static uchar_t get_color_pair_name_ind(const struct entry *ent, char *pind, int 
 static void printent(const struct entry *ent, uint_t namecols, bool sel)
 {
 	char ind = '\0';
-	int attrs;
-
-	if (cfg.showdetail) {
-		int type = ent->mode & S_IFMT;
-		char perms[6] = {' ', ' ', (char)('0' + ((ent->mode >> 6) & 7)),
-				(char)('0' + ((ent->mode >> 3) & 7)),
-				(char)('0' + (ent->mode & 7)), '\0'};
-
-		addch(' ');
-		attrs = g_state.oldcolor ? (resetdircolor(ent->flags), A_DIM)
-					 : (fcolors[C_MIS] ? COLOR_PAIR(C_MIS) : 0);
-		if (attrs)
-			attron(attrs);
-
-		/* Print details */
-		print_time(&ent->sec, ent->flags);
-
-		printw("%s%9s ", perms, (type == S_IFREG || type == S_IFDIR)
-			? coolsize(cfg.blkorder ? (blkcnt_t)ent->blocks << blk_shift : ent->size)
-			: (type = (uchar_t)get_detail_ind(ent->mode), (char *)&type));
-
-		if (attrs)
-			attroff(attrs);
-	}
-
-	attrs = 0;
-
+	int attrs = 0, namelen;
 	uchar_t color_pair = get_color_pair_name_ind(ent, &ind, &attrs);
+
+	if (git_statuses.show && (cfg.showdetail || cfg.normalgit))
+		printw(" %s%s", ent->git_status[0], ent->git_status[1]);
 
 	addch((ent->flags & FILE_SELECTED) ? '+' | A_REVERSE | A_BOLD : ' ');
 
@@ -4212,15 +4284,40 @@ static void printent(const struct entry *ent, uint_t namecols, bool sel)
 		++namecols;
 
 #ifndef NOLC
-	addwstr(unescape(ent->name, namecols));
+	addwstr((namelen = unescape(ent->name, namecols), (wchar_t *)g_buf));
 #else
-	addstr(unescape(ent->name, MIN(namecols, ent->nlen) + 1));
+	addstr((namelen = unescape(ent->name, MIN(namecols, ent->nlen) + 1), (char *)g_buf));
 #endif
 
-	if (attrs)
+	if (!sel && attrs)
 		attroff(attrs);
 	if (ind)
 		addch(ind);
+	if (cfg.showdetail) {
+		int type = ent->mode & S_IFMT;
+		char perms[6] = {(char)('0' + ((ent->mode >> 6) & 7)),
+				(char)('0' + ((ent->mode >> 3) & 7)),
+				(char)('0' + (ent->mode & 7)), ' ', ' ', '\0'}, *size = NULL;
+
+		if (attrs)
+			attron(attrs);
+		if (!g_state.oldcolor && (type == S_IFDIR || (type == S_IFLNK && ent->flags & DIR_OR_DIRLNK)))
+			attroff(A_BOLD);
+		int sizelen = (type == S_IFREG || type == S_IFDIR) ? xstrlen(size = coolsize(cfg.blkorder ? ent->blocks << blk_shift : ent->size)) : 1;
+		printw("%*c%*s%s%s", 1 + MIN(namecols, dtls.maxnameln + (uint_t)(ind ? 0 : 1)) - namelen, ' ',
+				dtls.maxsizeln - sizelen, "", size ? size : (type = (uchar_t)get_detail_ind(ent->mode), (char *)&type), "  ");
+#ifndef NOUG
+		if (g_state.uidgid && dtls.printguid) {
+			addstr(getpwname(ent->uid));
+			printw("%*c%s", dtls.maxuidln + 1 - dtls.uidln, ' ', getgrname(ent->gid));
+			printw("%*c", dtls.maxgidln + 2 - dtls.gidln, ' ');
+		}
+#endif
+		addstr(perms);
+		print_time(&ent->sec, ent->flags);
+	}
+	if (attrs)
+		attroff(attrs);
 }
 
 static void savecurctx(char *path, char *curname, int nextctx)
@@ -5183,15 +5280,20 @@ static void run_cmd_as_plugin(const char *file, char *runfile, uchar_t flags)
 
 static bool plctrl_init(void)
 {
-	size_t len;
+	size_t len, lenbuf;
+	pid_t pid = getpid();
 
 	/* g_tmpfpath is used to generate tmp file names */
 	g_tmpfpath[tmpfplen - 1] = '\0';
-	len = xstrsncpy(g_pipepath, g_tmpfpath, TMP_LEN_MAX);
+	len = lenbuf = xstrsncpy(g_pipepath, g_tmpfpath, TMP_LEN_MAX);
 	g_pipepath[len - 1] = '/';
-	len = xstrsncpy(g_pipepath + len, "nnn-pipe.", TMP_LEN_MAX - len) + len;
-	xstrsncpy(g_pipepath + len - 1, xitoa(getpid()), TMP_LEN_MAX - len);
+	xstrsncpy(g_ppipepath, g_pipepath, TMP_LEN_MAX);
+	len += xstrsncpy(g_pipepath + len, "nnn-pipe.", TMP_LEN_MAX - len);
+	xstrsncpy(g_pipepath + len - 1, xitoa(pid), TMP_LEN_MAX - len);
+	len = xstrsncpy(g_ppipepath + lenbuf, "nnn-ppipe.", TMP_LEN_MAX - lenbuf) + lenbuf;
+	xstrsncpy(g_ppipepath + len - 1, xitoa(pid), TMP_LEN_MAX - len);
 	setenv(env_cfg[NNN_PIPE], g_pipepath, TRUE);
+	setenv(env_cfg[NNN_PPIPE], g_ppipepath, TRUE);
 
 	return EXIT_SUCCESS;
 }
@@ -5218,6 +5320,21 @@ static ssize_t read_nointr(int fd, void *buf, size_t count)
 	while (len == -1 && errno == EINTR);
 
 	return len;
+}
+
+void *previewpipe(void *arg __attribute__ ((unused)))
+{
+	int fd, buf;
+
+	mkfifo(g_ppipepath, 0600);
+	fd = open(g_ppipepath, O_RDONLY);
+
+	if (read(fd, &buf, 1) == 1)
+		g_state.previewer = buf;
+
+	close(fd);
+	unlink(g_ppipepath);
+	return NULL;
 }
 
 static char *readpipe(int fd, char *ctxnum, char **path)
@@ -5653,6 +5770,11 @@ static int dentfill(char *path, struct entry **ppdents)
 		attron(COLOR_PAIR(cfg.curctx + 1));
 	}
 
+	char linkpath[PATH_MAX];
+	if ((git_statuses.len = get_git_statuses(path)))
+		if (!realpath(path, linkpath))
+			printwarn(NULL);
+
 #if _POSIX_C_SOURCE >= 200112L
 	posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
 #endif
@@ -5853,6 +5975,29 @@ static int dentfill(char *path, struct entry **ppdents)
 #endif
 		}
 
+		if (git_statuses.len) {
+			char dentpath[PATH_MAX];
+			size_t pathlen = mkpath(linkpath, dentp->name, dentpath);
+			dentp->git_status[0][0] = dentp->git_status[1][0] = '-';
+			dentp->git_status[0][1] = dentp->git_status[1][1] = '\0';
+
+			if (dentp->flags & DIR_OR_DIRLNK) {
+				char prefix[PATH_MAX];
+				memccpy(prefix, dentpath, '\0', PATH_MAX);
+				prefix[pathlen - 1] = '/';
+
+				for (size_t i = 0; i < git_statuses.len; ++i)
+					if (is_prefix(git_statuses.statuses[i].path, prefix, pathlen))
+						set_git_status(dentp->git_status, i);
+			} else {
+				for (size_t i = 0; i < git_statuses.len; ++i)
+					if (!xstrcmp(git_statuses.statuses[i].path, dentpath)) {
+						set_git_status(dentp->git_status, i);
+						break;
+					}
+			}
+		}
+
 		++ndents;
 	} while ((dp = readdir(dirp)));
 
@@ -5904,7 +6049,7 @@ static void populate(char *path, char *lastname)
 }
 
 #ifndef NOFIFO
-static void notify_fifo(bool force)
+static void notify_fifo(bool force, bool closepreview)
 {
 	if (!fifopath)
 		return;
@@ -5918,6 +6063,12 @@ static void notify_fifo(bool force)
 				fifopath = NULL;
 			return;
 		}
+	}
+
+	if (closepreview) {
+		if (write(fifofd, "close\n", 6) != 6)
+			xerror();
+		return;
 	}
 
 	static struct entry lastentry;
@@ -5952,7 +6103,7 @@ static void send_to_explorer(int *presel)
 		if (fd > 1)
 			close(fd);
 	} else
-		notify_fifo(TRUE); /* Send opened path to NNN_FIFO */
+		notify_fifo(TRUE, FALSE); /* Send opened path to NNN_FIFO */
 }
 #endif
 
@@ -5985,7 +6136,7 @@ static void move_cursor(int target, int ignore_scrolloff)
 
 #ifndef NOFIFO
 	if (!g_state.fifomode)
-		notify_fifo(FALSE); /* Send hovered path to NNN_FIFO */
+		notify_fifo(FALSE, FALSE); /* Send hovered path to NNN_FIFO */
 #endif
 }
 
@@ -6380,14 +6531,6 @@ static void statusbar(char *path)
 	tocursor();
 }
 
-static inline void markhovered(void)
-{
-	if (cfg.showdetail && ndents) { /* Bold forward arrowhead */
-		tocursor();
-		addch('>' | A_BOLD);
-	}
-}
-
 static int adjust_cols(int n)
 {
 	/* Calculate the number of cols available to print entry name */
@@ -6395,12 +6538,12 @@ static int adjust_cols(int n)
 	n -= (g_state.oldcolor ? 0 : ICON_SIZE + ICON_PADDING_LEFT_LEN + ICON_PADDING_RIGHT_LEN);
 #endif
 	if (cfg.showdetail) {
-		/* Fallback to light mode if less than 35 columns */
-		if (n < 36)
+		if (n < (dtls.maxentln + 1 - dtls.maxnameln))
 			cfg.showdetail ^= 1;
 		else /* 2 more accounted for below */
-			n -= 32;
-	}
+			n -= (dtls.maxentln - 2 - dtls.maxnameln);
+	} else if (cfg.normalgit && git_statuses.show)
+		n -= 3;
 
 	/* 2 columns for preceding space and indicator */
 	return (n - 2);
@@ -6436,8 +6579,6 @@ static void draw_line(int ncols)
 	/* Must reset e.g. no files in dir */
 	if (dir)
 		attroff(COLOR_PAIR(cfg.curctx + 1) | A_BOLD);
-
-	markhovered();
 }
 
 static void redraw(char *path)
@@ -6545,6 +6686,21 @@ static void redraw(char *path)
 
 	onscreen = MIN(onscreen + curscroll, ndents);
 
+	if (cfg.showdetail) {
+		ushort_t lenbuf = dtls.maxnameln = dtls.maxsizeln = dtls.maxuidln = dtls.maxgidln = dtls.printguid = 0;
+		for (i = curscroll; i < onscreen; ++i) {
+			if ((lenbuf = pdents[i].nlen - 1) > dtls.maxnameln) dtls.maxnameln = lenbuf;
+			if ((lenbuf = xstrlen(coolsize(cfg.blkorder ? pdents[i].blocks << blk_shift : pdents[i].size))) > dtls.maxsizeln) dtls.maxsizeln = lenbuf;
+#ifndef NOUG
+			if (g_state.uidgid) {
+				if ((getpwname(pdents[i].uid), dtls.uidln) > dtls.maxuidln) dtls.maxuidln = dtls.uidln;
+				if ((getgrname(pdents[i].gid), dtls.gidln) > dtls.maxgidln) dtls.maxgidln = dtls.gidln;
+			}
+#endif
+		}
+		dtls.maxentln = dtls.maxnameln + dtls.maxsizeln + (dtls.printguid ? (dtls.maxuidln + dtls.maxgidln + 3) : 0) + (git_statuses.show ? 29 : 26);
+	}
+
 	ncols = adjust_cols(ncols);
 
 	int len = scanselforpath(path, FALSE);
@@ -6575,7 +6731,7 @@ static void redraw(char *path)
 #endif
 	}
 
-	markhovered();
+	statusbar(path);
 }
 
 static bool cdprep(char *lastdir, char *lastname, char *path, char *newpath)
@@ -6602,7 +6758,7 @@ static bool browse(char *ipath, const char *session, int pkey)
 	pEntry pent;
 	enum action sel;
 	struct stat sb;
-	int r = -1, presel, selstartid = 0, selendid = 0;
+	int r = -1, presel, selstartid = 0, selendid = 0, previewkey = 0;
 	const uchar_t opener_flags = (cfg.cliopener ? F_CLI : (F_NOTRACE | F_NOSTDIN | F_NOWAIT));
 	bool watch = FALSE, cd = TRUE;
 	ino_t inode = 0;
@@ -6860,7 +7016,7 @@ nochange:
 					move_cursor(r, 1);
 #ifndef NOFIFO
 				else if ((event.bstate == BUTTON1_PRESSED) && !g_state.fifomode)
-					notify_fifo(TRUE); /* Send clicked path to NNN_FIFO */
+					notify_fifo(TRUE, FALSE); /* Send clicked path to NNN_FIFO */
 #endif
 				/* Handle right click selection */
 				if (event.bstate == BUTTON3_PRESSED) {
@@ -7024,7 +7180,14 @@ nochange:
 			    && strstr(g_buf, "text")
 #endif
 			) {
+				if (g_state.previewer)
+					notify_fifo(FALSE, TRUE);
 				spawn(editor, newpath, NULL, NULL, F_CLI);
+				if (g_state.previewer) {
+					pkey = previewkey;
+					goto run_plugin;
+				}
+
 				if (cfg.filtermode) {
 					presel = FILTER;
 					clearfilter();
@@ -7334,8 +7497,14 @@ nochange:
 				copycurname();
 				goto nochange;
 			case SEL_EDIT:
+				if (g_state.previewer)
+					notify_fifo(FALSE, TRUE);
 				if (!g_state.picker)
 					spawn(editor, newpath, NULL, NULL, F_CLI);
+				if (g_state.previewer) {
+					pkey = previewkey;
+					goto run_plugin;
+				}
 				continue;
 			default: /* SEL_LOCK */
 				lock_terminal();
@@ -7704,6 +7873,7 @@ nochange:
 			cd = FALSE;
 			goto begin;
 		}
+run_plugin:
 		case SEL_PLUGIN:
 			/* Check if directory is accessible */
 			if (!xdiraccess(plgpath)) {
@@ -7727,6 +7897,12 @@ nochange:
 				if (!tmp) {
 					printwait(messages[MSG_INVALID_KEY], &presel);
 					goto nochange;
+				}
+
+				if (xstrcmp(tmp, "preview-tui") == 0) {
+					previewkey = r;
+					pthread_t tid;
+					pthread_create(&tid, NULL, previewpipe, NULL);
 				}
 
 				if (tmp[0] == '-' && tmp[1]) {
@@ -7782,7 +7958,13 @@ nochange:
 		case SEL_SHELL: // fallthrough
 		case SEL_LAUNCH: // fallthrough
 		case SEL_PROMPT:
+			if (g_state.previewer)
+				notify_fifo(FALSE, TRUE);
 			r = handle_cmd(sel, newpath);
+			if (g_state.previewer) {
+				pkey = previewkey;
+				goto run_plugin;
+			}
 
 			/* Continue in type-to-nav mode, if enabled */
 			if (cfg.filtermode)
@@ -8169,6 +8351,7 @@ static void usage(void)
 		" -F val  fifo mode [0:preview 1:explore]\n"
 #endif
 		" -g      regex filters\n"
+		" -G      always show git status\n"
 		" -H      show hidden files\n"
 		" -i      show current file info\n"
 		" -J      no auto-jump on selection\n"
@@ -8307,6 +8490,7 @@ static void cleanup(void)
 		fflush(stdout);
 	}
 #endif
+	free(git_statuses.statuses);
 	free(selpath);
 	free(plgpath);
 	free(cfgpath);
@@ -8322,8 +8506,10 @@ static void cleanup(void)
 	if (g_state.autofifo)
 		unlink(fifopath);
 #endif
-	if (g_state.pluginit)
+	if (g_state.pluginit){
 		unlink(g_pipepath);
+		unlink(g_ppipepath);
+	}
 #ifdef DEBUG
 	disabledbg();
 #endif
@@ -8351,7 +8537,7 @@ int main(int argc, char *argv[])
 
 	while ((opt = (env_opts_id > 0
 		       ? env_opts[--env_opts_id]
-		       : getopt(argc, argv, "aAb:cCdDeEfF:gHiJKl:nop:P:QrRs:St:T:uUVxh"))) != -1) {
+		       : getopt(argc, argv, "aAb:cCdDeEfF:gGHiJKl:nop:P:QrRs:St:T:uUVxh"))) != -1) {
 		switch (opt) {
 #ifndef NOFIFO
 		case 'a':
@@ -8401,6 +8587,9 @@ int main(int argc, char *argv[])
 		case 'g':
 			cfg.regex = 1;
 			filterfn = &visible_re;
+			break;
+		case 'G':
+			cfg.normalgit = 1;
 			break;
 		case 'H':
 			cfg.showhidden = 1;
@@ -8821,7 +9010,7 @@ int main(int argc, char *argv[])
 
 #ifndef NOFIFO
 	if (!g_state.fifomode)
-		notify_fifo(FALSE);
+		notify_fifo(FALSE, TRUE);
 	if (fifofd != -1)
 		close(fifofd);
 #endif
