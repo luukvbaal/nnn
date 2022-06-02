@@ -4246,7 +4246,8 @@ static void savecurctx(char *path, char *curname, int nextctx)
 	} else { /* Set up a new context from current context */
 		ctxr->c_cfg.ctxactive = 1;
 		xstrsncpy(ctxr->c_path, path, PATH_MAX);
-		ctxr->c_last[0] = ctxr->c_name[0] = ctxr->c_fltr[0] = ctxr->c_fltr[1] = '\0';
+		xstrsncpy(ctxr->c_name, curname, NAME_MAX + 1);
+		ctxr->c_last[0] = ctxr->c_fltr[0] = ctxr->c_fltr[1] = '\0';
 		ctxr->c_cfg = tmpcfg;
 		/* If already in an ordered dir, clear ordering for the new context and let it order */
 		if (cfgsort[cfg.curctx] == 'z')
