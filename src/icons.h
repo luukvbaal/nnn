@@ -81,6 +81,7 @@
 #define ICON_MS_EXCEL      ICON_STR(FILE_EXCEL, "󰈛", ICON_WORDDOC)
 #define ICON_MUSIC         ICON_STR(FA_MUSIC, "󱍙", "🎧")
 #define ICON_MUSICFILE     ICON_STR(FA_FILE_AUDIO_O, "󰎈", ICON_MUSIC)
+#define ICON_ONEDRIVE      ICON_STR(FA_FILE_AUDIO_O, "", ICON_MUSIC)
 #define ICON_OPTICALDISK   ICON_STR(LINEA_MUSIC_CD, "", "💿")
 #define ICON_PDF           ICON_STR(FA_FILE_PDF_O, "󰈦", "📕")
 #define ICON_PHOTOSHOP     ICON_STR(DEV_PHOTOSHOP, "", ICON_PICTUREFILE)
@@ -134,27 +135,27 @@
  * Color names: https://www.ditig.com/256-colors-cheat-sheet
  */
 #define COLOR_LIST \
-	COLOR_X(COLOR_VIDEO,         45)  /* Turquoise2 */ \
-	COLOR_X(COLOR_VIDEO1,       226)  /* Yellow1 */ \
-	COLOR_X(COLOR_AUDIO,        220)  /* Gold1 */ \
-	COLOR_X(COLOR_AUDIO1,       205)  /* HotPink */ \
-	COLOR_X(COLOR_IMAGE,         82)  /* Chartreuse2 */ \
-	COLOR_X(COLOR_DOCS,         202)  /* OrangeRed1 */ \
-	COLOR_X(COLOR_ARCHIVE,      209)  /* Salmon1 */ \
-	COLOR_X(COLOR_C,             81)  /* SteelBlue1 */ \
-	COLOR_X(COLOR_JAVA,          32)  /* DeepSkyBlue3 */ \
-	COLOR_X(COLOR_JAVASCRIPT,    47)  /* SpringGreen2 */ \
-	COLOR_X(COLOR_REACT,         39)  /* DeepSkyBlue1 */ \
-	COLOR_X(COLOR_CSS,          199)  /* DeepPink1 */ \
-	COLOR_X(COLOR_PYTHON,       227)  /* LightGoldenrod1 */ \
-	COLOR_X(COLOR_LUA,           19)  /* Blue3 */ \
-	COLOR_X(COLOR_DOCUMENT,      15)  /* White */ \
-	COLOR_X(COLOR_FSHARP,        31)  /* DeepSkyBlue3 */ \
-	COLOR_X(COLOR_RUBY,         160)  /* Red3 */ \
-	COLOR_X(COLOR_SCALA,        196)  /* Red1 */ \
-	COLOR_X(COLOR_SHELL,         47)  /* SpringGreen2 */ \
-	COLOR_X(COLOR_VIM,           28)  /* Green4 */ \
-	COLOR_X(COLOR_ELIXIR,       104)  /* MediumPurple */ \
+	COLOR_X(COLOR_VIDEO,        110)  /* Turquoise2 */ \
+	COLOR_X(COLOR_VIDEO1,       110)  /* Yellow1 */ \
+	COLOR_X(COLOR_AUDIO,        150)  /* Gold1 */ \
+	COLOR_X(COLOR_AUDIO1,       150)  /* HotPink */ \
+	COLOR_X(COLOR_IMAGE,        150)  /* Chartreuse2 */ \
+	COLOR_X(COLOR_DOCS,         173)  /* OrangeRed1 */ \
+	COLOR_X(COLOR_ARCHIVE,      179)  /* Salmon1 */ \
+	COLOR_X(COLOR_C,            150)  /* SteelBlue1 */ \
+	COLOR_X(COLOR_JAVA,         139)  /* DeepSkyBlue3 */ \
+	COLOR_X(COLOR_JAVASCRIPT,   109)  /* SpringGreen2 */ \
+	COLOR_X(COLOR_REACT,        111)  /* DeepSkyBlue1 */ \
+	COLOR_X(COLOR_CSS,          110)  /* DeepPink1 */ \
+	COLOR_X(COLOR_PYTHON,        68)  /* LightGoldenrod1 */ \
+	COLOR_X(COLOR_LUA,          167)  /* Blue3 */ \
+	COLOR_X(COLOR_DOCUMENT,     111)  /* White */ \
+	COLOR_X(COLOR_FSHARP,       179)  /* DeepSkyBlue3 */ \
+	COLOR_X(COLOR_RUBY,         150)  /* Red3 */ \
+	COLOR_X(COLOR_SCALA,        139)  /* Red1 */ \
+	COLOR_X(COLOR_SHELL,        109)  /* SpringGreen2 */ \
+	COLOR_X(COLOR_VIM,          109)  /* Green4 */ \
+	COLOR_X(COLOR_ELIXIR,       150)  /* MediumPurple */ \
 
 /* X-Macro: https://en.wikipedia.org/wiki/X_Macro */
 #define COLOR_X(N, V) N = (V),
@@ -183,6 +184,7 @@ static const struct icon_pair icons_name[] = {
 	{"Desktop",     ICON_DESKTOP,   0},
 	{"Documents",   ICON_BRIEFCASE, 0},
 	{"Downloads",   ICON_DOWNLOADS, 0},
+	{"Onedrive",    ICON_ONEDRIVE,  0},
 	{"Music",       ICON_MUSIC,     0},
 	{"Pictures",    ICON_PICTURES,  0},
 	{"Public",      ICON_PUBLIC,    0},
